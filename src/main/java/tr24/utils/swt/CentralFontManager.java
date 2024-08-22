@@ -4,6 +4,7 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.graphics.Font;
 import org.eclipse.swt.widgets.Display;
 import tr24.utils.swt.api.IShutdownShell;
+import tr24.utils.swt.apprunenv.Tr24GuiCore;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -27,12 +28,12 @@ public class CentralFontManager implements IShutdownShell {
 	/**
 	 * constructor
 	 * 
-	 * @param core - nullable: Dann MUSS der Caller selber {@link #shellShutdown(ApplicationConfig)} rufen!!
+	 * @param core - nullable: Dann MUSS der Caller selber {@link IShutdownShell#shellShutdown()} rufen!!
 	 * 
 	 * @param defaultFontName - Arial, Consolas, ...
 	 */
-	public CentralFontManager(Display display, BasisCore core, String defaultFontName) {
-		this.display = display;
+	public CentralFontManager(Tr24GuiCore core, String defaultFontName) {
+		this.display = core.display;
 		if (core!=null) {
 			core.add2ShutdownShell(this);
 		}
@@ -40,7 +41,7 @@ public class CentralFontManager implements IShutdownShell {
 	}
 
 	@Override
-	public void shellShutdown(ApplicationConfig conf) {
+	public void shellShutdown() {
 		for (Font f : fontCache.values()) {
 			f.dispose();
 		}

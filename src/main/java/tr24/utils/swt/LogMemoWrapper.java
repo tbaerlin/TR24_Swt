@@ -148,7 +148,7 @@ public class LogMemoWrapper implements IShutdownShell {
 		return text;
 	}
 	@Override
-	public void shellShutdown(ApplicationConfig conf) {
+	public void shellShutdown() {
 		active = false;
 	}
 	public void setFormData(FormData fd) {

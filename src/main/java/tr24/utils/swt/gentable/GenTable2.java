@@ -13,6 +13,7 @@ import tr24.utils.common.ThreadUtil;
 import tr24.utils.swt.BasisCore;
 import tr24.utils.swt.FARBE;
 import tr24.utils.swt.api.IShutdownHook;
+import tr24.utils.swt.apprunenv.Tr24GuiCore;
 
 import java.util.List;
 import java.util.*;
@@ -120,7 +121,7 @@ public class GenTable2<T> implements IShutdownHook {
 		return new ColBuilder();
 	}
 	
-	protected final BasisCore core;
+	protected final Tr24GuiCore core;
 	
 	private Table table;
 	
@@ -248,7 +249,7 @@ public class GenTable2<T> implements IShutdownHook {
 	/**
 	 * erzeugt initial die SWT-Tabelle
 	 */
-	public GenTable2(Composite parent, ITableAdapter<T> adapter, BasisCore core, boolean showBorder) {
+	public GenTable2(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder) {
 		this(parent, adapter, core, showBorder, null, null, null);
 	}
 	
@@ -257,7 +258,7 @@ public class GenTable2<T> implements IShutdownHook {
 	 * - ggf MIT Menu
 	 * - ggf MIT Post-Sorting-User-Code
 	 */
-	public GenTable2(Composite parent, ITableAdapter<T> adapter, BasisCore core, boolean showBorder,
+	public GenTable2(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder,
                      IContextMenuAware<T> menuOrNull, IPostSortListener<T> postSortOrNull, IKeyAware<T> keyOrNull)
 	{
 		this.adapter = adapter;
@@ -427,9 +428,7 @@ public class GenTable2<T> implements IShutdownHook {
 	public void shutdown() {
 		run = false;		// der Activity-Thread muss aufhören, sonst knallt's dauernd (Widget is disposed)
 	}
-	
-	
-	
+
 	/**
 	 * Zugriff auf die echte SWT-Tabelle
 	 */
@@ -920,7 +919,7 @@ public class GenTable2<T> implements IShutdownHook {
 				}
 				sortData((ColumnHandler) sortColumn.getData(), dir);
 			} catch (Exception ex) {
-				core.error("GenTable.sort()", ex);
+                System.err.println("GenTable.sort(): " + ex);
 			}
 		}
 	};

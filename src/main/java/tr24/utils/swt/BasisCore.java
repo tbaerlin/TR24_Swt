@@ -663,7 +663,7 @@ public class BasisCore {
 				public Object call() throws Exception {
 					for (IShutdownShell listener : shellShutdownList) {
 						try {
-							listener.shellShutdown(appConfig);
+							listener.shellShutdown();
 						} catch (Throwable e) {
 							// sicher ist sicher
 						}

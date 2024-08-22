@@ -5,6 +5,7 @@ import org.eclipse.swt.layout.FillLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
 import org.eclipse.swt.widgets.TableItem;
+import tr24.utils.swt.apprunenv.Tr24GuiCore;
 import tr24.utils.swt.gentable.ColumnHandler;
 import tr24.utils.swt.gentable.GenTable2;
 import tr24.utils.swt.gentable.ITableAdapter;
@@ -42,7 +43,7 @@ public class ProgressInfoTable extends Composite implements IProgressInfoTable {
 	 * 
 	 * @param insertNewLinesOnTop false=append, true:add-on-top
 	 */
-	public ProgressInfoTable(Composite parent, BasisCore core, boolean insertNewLinesOnTop) {
+	public ProgressInfoTable(Composite parent, Tr24GuiCore core, boolean insertNewLinesOnTop) {
 		super(parent, SWT.NONE);
 		this.insertNewLinesOnTop = insertNewLinesOnTop;
 		setLayout(new FillLayout());		// die Tabelle wird alles ausfüllen
@@ -94,7 +95,7 @@ public class ProgressInfoTable extends Composite implements IProgressInfoTable {
 	 */
 	class MyTable implements ITableAdapter<MyRow> {
 		
-		public MyTable(BasisCore core) {
+		public MyTable(Tr24GuiCore core) {
 			tab = new GenTable2<>(ProgressInfoTable.this, this, core, true);
 			GenTable2.ColBuilder cb = tab.getColBuilder();
 			cb.addText("Context", 150, SWT.LEFT, false);
