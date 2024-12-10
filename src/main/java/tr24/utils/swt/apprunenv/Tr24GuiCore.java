@@ -4,13 +4,13 @@ import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.MessageBox;
 import org.eclipse.swt.widgets.Shell;
-import tr24.utils.common.Task;
-import tr24.utils.common.TaskQueue;
+import tr24.utils.annotations.Nullable;
+import tr24.utils.common.*;
 import tr24.utils.swt.CentralFontManager;
 import tr24.utils.swt.api.IShutdownHook;
 import tr24.utils.swt.api.IShutdownShell;
-import tr24.utils.swt.gentable.GenTable2;
 
+import java.io.File;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -23,7 +23,7 @@ import java.util.concurrent.Callable;
  *   - user code talks to stuff in SWT
  *
  */
-public class Tr24GuiCore {
+public class Tr24GuiCore implements LogCore {
 
     public final Display display;
     private final TaskQueue coreTaskQ;
@@ -34,22 +34,36 @@ public class Tr24GuiCore {
     public final List<IShutdownHook> shutdownList = new ArrayList<>();
     public final List<IShutdownShell> swtShutdownList = new ArrayList<>();
     private CentralFontManager centralFontManager;
+    /** some shell, so some calls will work that need a shell, e.g. showAlarm() */
+    private Shell mainShell;
+    private ILogger logger;
 
     public Tr24GuiCore(Display display) {
-        this.display = display;
-        this.coreTaskQ = null;
+        this(display, null);
     }
     public Tr24GuiCore(Display display, TaskQueue coreTaskQ) {
         this.display = display;
         this.coreTaskQ = coreTaskQ;
     }
+    public Tr24GuiCore(Display display, TaskQueue taskQueue, @Nullable ILogger logger) {
+        this(display, taskQueue);
+        this.logger = logger;
+    }
 
+
+    @Override
+    public ILogger getLogger() {
+        if (logger == null) {
+            return new ILogger.SysoutLogger(LogLevel.TRACE);
+        }
+        return logger;
+    }
 
     /**
      * run some task in mainQ
      */
     public void executeTask(Task task) {
-        if (coreTaskQ != null) {
+        if (coreTaskQ == null) {
             throw new IllegalArgumentException("Tr24GuiCore.taskQ is not set. Use Ctor(display, taskQ)!");
         }
         coreTaskQ.execute(task);
@@ -146,18 +160,33 @@ public class Tr24GuiCore {
         }
     }
 
+    @Override
+    public void showError(String msg) {
+        System.err.println("Error: " + msg);
+    }
+
+    @Override
+    public void showAlarmDialog(String heading, String warnMsg) {
+        // for now:
+        _showMessageBox(heading, warnMsg);
+    }
+
     /**
      * etwas kritisches ist passiert
      * - zeige GUI an wenn möglich
      */
-    public void showCriticalError(final String message, Shell shell) {
+    public void showCriticalError(final String message) {
+        _showMessageBox("Critical", message);
+    }
+
+    private void _showMessageBox(String headline, String message) {
         System.err.println("** CRITICAL **   " + message);
-        if (display!=null && display.isDisposed()) {
+        if (mainShell!=null && display!=null && !display.isDisposed()) {
             asyncExec(new Runnable() {
                 public void run() {
                     // sonst: Zeige MessageBox an
-                    MessageBox mb = new MessageBox(shell, SWT.ERROR_UNSPECIFIED);
-                    mb.setText("ERROR!");
+                    MessageBox mb = new MessageBox(mainShell, SWT.ERROR_UNSPECIFIED);
+                    mb.setText(headline);
                     mb.setMessage(message);
                     mb.open();
                 }
@@ -186,4 +215,28 @@ public class Tr24GuiCore {
         return centralFontManager;
     }
 
+    public void copyMainShellImageTo(Shell shell) {
+        System.err.println("copyMainShellImageTo: imp me");
+    }
+
+    /**
+     * intern only
+     */
+    public void _setShell(Shell shell) {
+        this.mainShell = shell;
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

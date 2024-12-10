@@ -40,7 +40,6 @@ public class TEST_NewAppRunENV {
         Thread eventLoopThread = new Thread(() -> {
             runEnv.runEventLoop();
         });
-
         eventLoopThread.start();
 
         // Allow time for the UI to run
@@ -62,7 +61,7 @@ public class TEST_NewAppRunENV {
 
 
 
-    public class RunEnvironment {
+    public static class RunEnvironment {
         private Display display;
         private List<App> apps = new ArrayList<>();
         private List<Runnable> shutdownHooks = new ArrayList<>();
@@ -128,7 +127,7 @@ public class TEST_NewAppRunENV {
     }
 
 
-    public abstract class App {
+    public static abstract class App {
         protected Shell shell;
         protected RunEnvironment env;
 

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public abstract class AppRunEnv {
 
 
+    private static long APP_SHUTDOWN_TIMEOUT_MILLIES = 10_000;
 
     /* --------------- APIs --------------------------- */
     public interface ITestARE {
@@ -58,6 +59,13 @@ public abstract class AppRunEnv {
     }
 
     /**
+     * DEV: Set/Change the shutdown timeout (default = 10sec)
+     */
+    public static void SET_AppShutdownTimeout(long millies) {
+        APP_SHUTDOWN_TIMEOUT_MILLIES = Math.max(1000, millies);
+    }
+    
+    /**
      * Run ONE standalone app
      *
      * @param blocking  - true: call BLOCKs until app is done <br>
@@ -79,7 +87,7 @@ public abstract class AppRunEnv {
 
     protected final ILogger logger;
     public final TaskQueue taskQueue;
-    protected final ExecutorService executorService;
+    protected final ExecutorService threaPool;
     protected final SchedulerService schedulerService;
     protected final List<AppCtxImpl> myApps = new ArrayList<>();
     public final boolean isStandalone;
@@ -95,7 +103,7 @@ public abstract class AppRunEnv {
     protected AppRunEnv(@Nullable ILogger logger, @Nullable String taskQName, int threadPopolSize, @Nullable String scheduler, boolean isStandalone) {
         this.logger    = logger!=null ? logger : new ILogger.SysoutLogger(LogLevel.DEBUG);
         this.taskQueue = (taskQName != null) ? new TaskQueue(taskQName) : null;
-        this.executorService = (threadPopolSize > 0) ? Executors.newFixedThreadPool(threadPopolSize) : null;
+        this.threaPool = (threadPopolSize > 0) ? Executors.newFixedThreadPool(threadPopolSize) : null;
         this.schedulerService = (scheduler != null) ? new SchedulerService(scheduler) : null;
         this.isStandalone = isStandalone;
     }
@@ -110,8 +118,8 @@ public abstract class AppRunEnv {
         }
         shutdownHandler = new ShutdownHandler(myApps, guiThread.getDisplay(), tr24GuiCore.shutdownList, tr24GuiCore.swtShutdownList);
         // run it somewhere: do NOT run Handler in TaskQ -> that could be blocking/be-busy right now
-        if (executorService != null) {
-            executorService.submit(shutdownHandler::runShutdown);
+        if (threaPool != null) {
+            threaPool.submit(shutdownHandler::runShutdown);
         } else {
             new Thread(shutdownHandler::runShutdown).start();
         }
@@ -135,12 +143,12 @@ public abstract class AppRunEnv {
         @Override
         public <T> T addApp(ISwtApp app, @Nullable Object initObject, Class<T> waitForAppReady) {
 
-            AppCtxImpl appCtx = new AppCtxImpl(this, app, guiThread.getDisplay(), true);
+            AppCtxImpl appCtx = new AppCtxImpl(this, app, guiThread.getDisplay(), true, tr24GuiCore);
             myApps.add(appCtx);
 
             // call app-stuff (by CONTRACT)
             try {
-                app.initServices(initObject, taskQueue, executorService, schedulerService, appCtx, logger);
+                app.initServices(initObject, taskQueue, threaPool, schedulerService, appCtx, logger);
             } catch (Exception e) {
                 logger.error("Error calling initServices:");
                 e.printStackTrace();
@@ -198,15 +206,15 @@ public abstract class AppRunEnv {
             super(pLogger, taskQName, threadPopolSize, scheduler, true);
             this.guiThread = new GuiThread();
             this.guiThread.start(); // Start the SWT loop for standalone mode
-            this.tr24GuiCore = new Tr24GuiCore(guiThread.getDisplay(), this.taskQueue/*may be null!*/);
+            this.tr24GuiCore = new Tr24GuiCore(guiThread.getDisplay(), this.taskQueue/*may be null!*/, pLogger);
 
             // Initialize and run the app
-            AppCtxImpl appCtx = new AppCtxImpl(this, theApp, guiThread.getDisplay(), false);
+            AppCtxImpl appCtx = new AppCtxImpl(this, theApp, guiThread.getDisplay(), false, tr24GuiCore);
             myApps.add(appCtx);
 
             // call app-stuff (by CONTRACT)
             try {
-                theApp.initServices(someConfig, taskQueue, executorService, schedulerService, appCtx, logger);
+                theApp.initServices(someConfig, taskQueue, threaPool, schedulerService, appCtx, logger);
             } catch (Exception e) {
                 logger.error("Error calling initServices:");
                 e.printStackTrace();
@@ -303,7 +311,7 @@ public abstract class AppRunEnv {
             final AtomicInteger countDown = new AtomicInteger(n);
 
             // run all hooks of all apps: wait some time, but not too long
-            this.hookWaitTimeout = System.currentTimeMillis() + 10_000;
+            this.hookWaitTimeout = System.currentTimeMillis() + APP_SHUTDOWN_TIMEOUT_MILLIES;
             this.runsAllowed = true;
             Thread th = new Thread(()-> {
                 // 1) run ctx-hooks
@@ -334,7 +342,7 @@ public abstract class AppRunEnv {
                 for (IShutdownShell swtHook : swtShutdownList) {
                     if (runsAllowed) {
                         try {
-                            swtHook.shellShutdown();
+                            tr24GuiCore.asyncExecAndWait(swtHook::shellShutdown);
                         } catch (Exception e) {
                             e.printStackTrace(); /* ignore */
                         }
@@ -375,6 +383,14 @@ public abstract class AppRunEnv {
 
             // kill all SWT
             display.asyncExec(()-> display.dispose() );
+
+            // kill pool and tQ
+            if (taskQueue!=null) {
+                taskQueue.shutdown();
+            }
+            if (threaPool!=null) {
+                threaPool.shutdownNow();
+            }
 
             // wait for UI-Thread to be gone
             guiThread.join();

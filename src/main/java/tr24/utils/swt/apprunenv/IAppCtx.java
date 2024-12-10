@@ -19,6 +19,7 @@ public interface IAppCtx {
     void appIsReady(Object outObj);
 
     void registerShutdownCode(Runnable code);
+    void registerSwtShutdownCode(Runnable code);
 
     /**
      * Trigger code-induced shutdown
@@ -35,4 +36,5 @@ public interface IAppCtx {
     void asyncExec(Runnable uiCode);
 
     void syncExec(Runnable uiCode);
+
 }

@@ -1,14 +1,22 @@
 package tr24.utils.swt.apprunenv;
 
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.widgets.Button;
-import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Shell;
+import org.eclipse.swt.events.SelectionEvent;
+import org.eclipse.swt.graphics.Image;
+import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.layout.FormLayout;
+import org.eclipse.swt.widgets.*;
 import tr24.utils.common.ILogger;
 import tr24.utils.common.LogLevel;
 import tr24.utils.common.TaskQueue;
 import tr24.utils.common.ThreadUtil;
 import tr24.utils.scheduler.SchedulerService;
+import tr24.utils.swt.ApplicationConfig;
+import tr24.utils.swt.FARBE;
+import tr24.utils.swt.IconBuilder;
+import tr24.utils.swt.SwtUtils;
+import tr24.utils.swt.api.IOnButtonClick;
+import tr24.utils.swt.api.IShutdownShell;
 import tr24.utils.swt.apprunenv.AppRunEnv.IStandaloneARE;
 import tr24.utils.swt.apprunenv.AppRunEnv.ITestARE;
 
@@ -20,64 +28,56 @@ import java.util.concurrent.ExecutorService;
  */
 public class DEV_AppRunEnv {
 
-    public static void main(String[] args) {
-        new DEV_AppRunEnv().simTest();
-       // new DEV_AppRunEnv().simStandalone();
-    }
-    private void simStandalone() {
-        File someConfig = new File("abc");
-        boolean blocking = true;
+    private static final String CONF_FILE = "stepper2.conf";
 
-        IStandaloneARE SA_ARE = AppRunEnv.RUN_STANDALONE(null, null, 2, "scheduler", someConfig, new TestApp1(), blocking);
+    public static void main(String[] args) {
+
+        String confFile = CONF_FILE;
+        if (args.length>0) {
+            String s = args[0];
+            if (s.startsWith("config=")) {
+                s = s.substring(7);
+                confFile = s;
+            }
+        }
+        new DEV_AppRunEnv().runApp(confFile);
+    }
+
+    private void runApp(String confFile) {
+        ILogger logger = new ILogger.SysoutLogger(LogLevel.INFO.DEBUG);
+        boolean blocking = true;
+        // check conf File
+        File cfg = new File(confFile);
+        if (!cfg.exists()) {
+            throw new IllegalArgumentException("config file not set/found: " + cfg.getAbsolutePath());
+        }
+
+        IStandaloneARE SA_ARE = AppRunEnv.RUN_STANDALONE(logger, "taskQ", 2, null, cfg, new StepperNT7App(), blocking);
 
         // no need to call anything else
-        System.out.println("app is done");
+        System.out.println(DEV_AppRunEnv.class.getSimpleName() + " done.");
     }
 
 
-    private void simTest() {
-        ILogger logger = new ILogger.SysoutLogger(LogLevel.INFO.DEBUG);
+    public class StepperNT7App implements ISwtApp<File> {
 
-        // mode "shared = test": Start the SWT-loop in the background right away!
-        ITestARE ARE = AppRunEnv.BUILD_TEST_ENV(logger, "taskQ", 0, "scheduler");
-
-        // test starts app 1 and WAITs for app to say "I am up and here is some info"
-        String someInitObject = "fileRef-to-config";
-        Integer port = ARE.addApp(new TestApp1(), someInitObject, Integer.class);
-        // nice: since SWT is already running, TestApp1 is response! Even when TestApp2 was not added yet!
-
-        // test now starts app 2
-        ARE.addApp(new TestApp2(), null);
-
-        // now do the tests
-        // run test A
-        // run test B
-        // run test C
-        ThreadUtil.sleepUnhandled(2000);
-
-        // test is done: I NEED TO init the SHUTDOWN!
-        ARE.triggerAppShutdown();
-
-        logger.debug("done");
-    }
-
-
-
-
-
-    public class TestApp1 implements ISwtApp<String> {
-
+        private Shell shell;
         private Label label;
+        private File confFile;
         private ILogger logger;
+        private ApplicationConfig conf;
+        private Button btnAC;
 
         @Override
-        public void initServices(String initObject, TaskQueue taskQ, ExecutorService pool, SchedulerService scheduler, IAppCtx appCtx, ILogger logger) {
+        public void initServices(File confFile, TaskQueue taskQ, ExecutorService pool, SchedulerService scheduler, IAppCtx appCtx, ILogger logger) {
+            this.confFile = confFile;
             this.logger = logger;
-            logger.info("TestApp1.initServices;");
+            logger.info("StepeprNT7.initServices;");
 
             appCtx.registerShutdownCode(()->{
-                logger.info("TestApp1: sim long shutdown;");
-                ThreadUtil.sleepUnhandled(2000);
+                logger.info("sim long shutdown;");
+                conf.setMainShellPosition(shell.getBounds());
+                ThreadUtil.sleepUnhandled(1000);
             });
         }
 
@@ -85,32 +85,50 @@ public class DEV_AppRunEnv {
         public void initGui(IAppCtx appCtx, Tr24GuiCore core) {
             logger.info("TestApp1.initGui;");
 
-            Shell shell = new Shell(core.display);
-            shell.setText("TestApp1 Main Window");
-            shell.setSize(300, 200);
+            Display display = core.display;
+            conf = new ApplicationConfig(confFile);
+            conf.loadConfigFile();
 
-            // Create Label
-            label = new Label(shell, SWT.NONE);
-            label.setText("Initial Text");
-            label.setBounds(20, 20, 200, 20);
+            this.shell = new Shell(display);
+            shell.setText("Stepper NT7/V2");
+            shell.setLayout(new FormLayout());
+            Image img = new IconBuilder().buildBarIcon(display, FARBE.BLACK_BLUE_ish);
+            shell.setImage(img);
 
-            // Create Button
-            Button button = new Button(shell, SWT.PUSH);
-            button.setText("Change Label");
-            button.setBounds(20, 60, 100, 30);
-            button.addListener(SWT.Selection, event -> {
-                // Simulate delayed label update using non-UI-thread
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(1000); // 1000ms delay
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+            Rectangle bounds = conf.getMainShellPosition(display.getMonitors());
+            shell.setBounds(bounds);
+
+            Composite boxOben = SwtUtils.LAYOUT.layout_ObenLeiste(shell, 60, 1, FARBE.BLACK_BLUE_ish);
+            btnAC = SwtUtils.LAYOUT.layout_button("loading...", 4, 4, 100, 25, boxOben, new IOnButtonClick() {
+                @Override
+                public void widgetSelected(SelectionEvent e) {
+                /*    if (core.runThisAc!=null) {			// sicher ist sicher
+                        core.run(new Task_StartAC(core.runThisAc, core.runtThisInst));
                     }
-                    appCtx.asyncExec(() -> label.setText("Text Updated"));
-                }).start();
+                    // btnAC.setEnabled(false);		// FIXME: multi start gehen momentan */
+                }
+            });
+            btnAC.setEnabled(false);
+
+            // Slider : zum Einstellen der scrollMiddle im Chart
+            int sliderPos = conf.getIntProp("slider", 80);		// optional!
+            final Slider slider = new Slider (boxOben, SWT.HORIZONTAL);
+            slider.setBounds(15, 32, 200, 20);
+            slider.setMinimum(5);		// von 10%-99%
+            slider.setMaximum(109);
+            slider.setSelection(sliderPos);	// start-Value
+            slider.addListener (SWT.Selection, new Listener () {
+                public void handleEvent (Event event) {
+                    int selection = slider.getSelection();
+                    System.err.println(selection);
+                    // Sende an AC-Ctx:
+/*                    if (core.curAcCtx!=null) {
+                        //core.curAcCtx.changeChartScrollMiddle(selection);
+                    }  */
+                }
             });
 
-            // Register the shell
+            // Contract with app-runner: Register the shell
             appCtx.registerShell(shell);   // this does handle the close-event
             // Open the shell
             shell.open();
@@ -120,26 +138,6 @@ public class DEV_AppRunEnv {
         }
     }
 
-
-
-
-
-
-
-
-
-    static class TestApp2 implements ISwtApp {
-
-        @Override
-        public void initServices(Object initObject, TaskQueue taskQ, ExecutorService pool, SchedulerService scheduler, IAppCtx appCtx, ILogger logger) {
-
-        }
-
-        @Override
-        public void initGui(IAppCtx appCtx, Tr24GuiCore core) {
-
-        }
-    }
 
 
 }

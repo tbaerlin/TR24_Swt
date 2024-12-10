@@ -15,16 +15,18 @@ public class AppCtxImpl implements IAppCtx {
     final ISwtApp app;
     final Display display;
     private final boolean isTestMode;
+    private final Tr24GuiCore tr24GuiCore;
 
     Object outObj = null;
     boolean shutdownActive;
 
     /** Ctor ----------------------------------------------- */
-    public AppCtxImpl(AppRunEnv appRunEnv, ISwtApp app, Display display, boolean isTestMode) {
+    public AppCtxImpl(AppRunEnv appRunEnv, ISwtApp app, Display display, boolean isTestMode, Tr24GuiCore tr24GuiCore) {
         this.appRunEnv = appRunEnv;
         this.app = app;
         this.display = display;
         this.isTestMode = isTestMode;
+        this.tr24GuiCore = tr24GuiCore;
     }
 
     @Override
@@ -44,6 +46,13 @@ public class AppCtxImpl implements IAppCtx {
     }
 
     @Override
+    public void registerSwtShutdownCode(Runnable code) {
+        if (tr24GuiCore!=null) {
+            tr24GuiCore.add2ShutdownShell(()->code.run());
+        }
+    }
+
+    @Override
     public void doShutdownByProgram() {
         appRunEnv.initiateShutdown();
     }
@@ -57,6 +66,8 @@ public class AppCtxImpl implements IAppCtx {
                 doShutdownByProgram();
             }
         });
+        // make shell known => so showCriticalError() can show stuff WITHOUT needing to pass a shell-Object
+        this.tr24GuiCore._setShell(shell);
     }
 
     public void asyncExec(Runnable runnable) {

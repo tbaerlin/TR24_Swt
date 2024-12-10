@@ -6,6 +6,9 @@ import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.GC;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.layout.FormAttachment;
+import org.eclipse.swt.layout.FormData;
+import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.*;
 import tr24.utils.common.ShittyCodeException;
 import tr24.utils.common.Task;
@@ -32,8 +35,18 @@ import java.util.*;
  * painting in SWT-Tabellen:   
  * http://www.eclipse.org/articles/article.php?file=Article-CustomDrawingTableAndTreeItems/index.html
  */
-public class GenTable2<T> implements IShutdownHook {
+public class GenTable3<T> implements IShutdownHook {
 
+    public interface IInlineFilter<T> {
+        /**
+         * Filters the provided list of all rows based on the filter string.
+         *
+         * @param allRows      The full list of data items.
+         * @param filterString The current filter string entered by the user.
+         * @return A list of data items that match the filter criteria.
+         */
+        List<T> onFilter(List<T> allRows, String filterString);
+    }
 
 
     /**
@@ -44,22 +57,22 @@ public class GenTable2<T> implements IShutdownHook {
 		 * Blinkt in einer Farbe
 		 */
 		SOLID_COLOR,
-		
+
 		/**
 		 * ping-bar nach oben
 		 */
 		ACTIVITY_METER
 	}
-	
+
 	/**
 	 * Helfer: baue die Spalten auf
-	 * 
-	 * - hole den Builder über die Tabelle: {@link GenTable2#builder()}
+	 *
+	 * - hole den Builder über die Tabelle: {@link GenTable3#builder()}
 	 */
 	public static class ColBuilder {
 
 		private final List<ColumnHandler> ch = new ArrayList<ColumnHandler>();
-		
+
 		private ColBuilder() {
 		}
 
@@ -92,7 +105,7 @@ public class GenTable2<T> implements IShutdownHook {
 			ch.add(ColumnHandler.MONEY(ch.size(), label, width, swtLeftCenterRight, sortable));
 		}
 		/**
-		 * @param showZeroPrice - false: zeige nicht für 0.0 
+		 * @param showZeroPrice - false: zeige nicht für 0.0
 		 */
 		public void addPrice(String label, int width, int swtLeftCenterRight, boolean sortable, boolean showZeroPrice) {
 			ch.add(ColumnHandler.PRICE(ch.size(), label, width, swtLeftCenterRight, sortable, showZeroPrice));
@@ -105,30 +118,30 @@ public class GenTable2<T> implements IShutdownHook {
 			ch.add(ColumnHandler.PERCENTAGE(ch.size(), label, width, swtLeftCenterRight, sortable));
 		}
 	}
-	
+
 	/**
 	 * @return true nach Ende
 	 */
 	public boolean isDisposed() {
 		return disposed;
 	}
-	
+
 	public ColBuilder builder() {
 		return new ColBuilder();
 	}
 	public ColBuilder getColBuilder() {
 		return new ColBuilder();
 	}
-	
+
 	protected final Tr24GuiCore core;
-	
+
 	private Table table;
-	
+
 	/**
 	 * true wenn die Tabelle SWT-mässig gekillt wurde
 	 */
 	protected boolean disposed = false;
-	
+
 	/**
 	 * Liste der Zeilen - sortiert - ÄNDERT also die Reihenfolge der Einträge
 	 * wenn der User auf eine Column klickt
@@ -138,7 +151,7 @@ public class GenTable2<T> implements IShutdownHook {
 	protected ColumnHandler[] colList;
 
 	protected final ITableAdapter<T> adapter;
-	
+
 	final private Color colLeft;
 	final private Color colRight;
 
@@ -158,19 +171,19 @@ public class GenTable2<T> implements IShutdownHook {
 	 * Liste der aktiven Highlights, wird vom {@link ActivityThread} verwaltet
 	 */
 	protected List<CellHighlight> highlighters = new ArrayList<CellHighlight>();
-	
+
 	/**
 	 * reverse-lookup: Finde die Row zum Daten-Element
 	 */
 	protected Map<T, Row> dataLookup = new HashMap<T, Row>(2000);
-	
+
 	protected boolean run = true;
-	
+
 	/**
 	 * wird bei Bedarf erzeugt
 	 */
 	protected ActivityThread activityThread = null;
-	
+
 	/**
 	 * beim render() checken wir die Breite des Anzeige-Strings und merken uns den breitesten
 	 */
@@ -179,30 +192,30 @@ public class GenTable2<T> implements IShutdownHook {
 	 * siehe {@link #setMinColumnWidth(int, int)}
 	 */
 	private final int[] minColWidth = new int[1024];
-	
+
 	private long lastUpdateCall = 0;
-	
+
 	/**
 	 * zum Filtern von doppelten Events
 	 */
 	private int lastEventTime;
-	
+
 	/**
 	 * see fireOnCell(TableItem, int, boolean, TypedEvent, String)
 	 */
 	protected boolean mouseDown;
-	
+
 	/**
 	 * check die Menus wenn gesetzt
 	 */
 	private final IContextMenuAware<T> menus;
-	
+
 	private final Map<String, MenuDefinition> contextMenuCache = new HashMap<String, MenuDefinition>();
-	
+
 	protected final IPostSortListener<T> postSortHook;
-	
+
 	protected final IKeyAware<T> keyListener;
-	
+
 	/**
 	 * gesetzt wenn gerade ein Context-Menu offen ist:
 	 * - diese ZEILE
@@ -215,9 +228,9 @@ public class GenTable2<T> implements IShutdownHook {
 	 * - ich muss das wissen für onKey(...)
 	 */
 	private Row curSelectedRow;
-	
+
 	/**
-	 * siehe {@link Row#selectionFlag} 
+	 * siehe {@link Row#selectionFlag}
 	 */
 	private Row toBeSelected;
 
@@ -230,10 +243,10 @@ public class GenTable2<T> implements IShutdownHook {
 
 	/**
 	 * nur gesetzt wenn ein {@link #setCustomPaintColumn(int, ICustomColumnPainter)} kam
-	 * - ich prüfe bei jedem Paint ob die Zelle der Spalte x vom user-Code gezeichnet werden will 
+	 * - ich prüfe bei jedem Paint ob die Zelle der Spalte x vom user-Code gezeichnet werden will
 	 */
 	private ICustomColumnPainter<T>[] customPainters;
-	
+
 	/**
 	 * praktisch: ich brauch was um zwei INTs zu speichern
 	 */
@@ -243,12 +256,17 @@ public class GenTable2<T> implements IShutdownHook {
 	 * nur gesetzt wenn die Rows eine nicht-standard-Höhe haben sollen
 	 */
 	RowHeightSetter measureHandler;
-	
-	
-	/**
+
+    /* ------------ stuff for the inline filter ------------ */
+    private InlineFilterHelper filterHelper;
+    private Composite container; // Inner composite to manage layout
+    /* ------------ stuff for the inline filter ------------ */
+
+
+    /**
 	 * erzeugt initial die SWT-Tabelle
 	 */
-	public GenTable2(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder) {
+	public GenTable3(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder) {
 		this(parent, adapter, core, showBorder, null, null, null);
 	}
 
@@ -257,7 +275,7 @@ public class GenTable2<T> implements IShutdownHook {
 	 * - ggf MIT Menu
 	 * - ggf MIT Post-Sorting-User-Code
 	 */
-    public GenTable2(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder,
+    public GenTable3(Composite parent, ITableAdapter<T> adapter, Tr24GuiCore core, boolean showBorder,
                      IContextMenuAware<T> menuOrNull, IPostSortListener<T> postSortOrNull, IKeyAware<T> keyOrNull)
     {
 		this.adapter = adapter;
@@ -270,16 +288,41 @@ public class GenTable2<T> implements IShutdownHook {
 		// Selected-Row Farbverlauf
 		colLeft = FARBE.ORANGE_1;
 		colRight = FARBE.YELLOW_1;
-		
-		// create a virtual table to display data
-		if (showBorder) {
-			table = new Table(parent, SWT.VIRTUAL | SWT.FULL_SELECTION | SWT.BORDER);
-		} else {
-			table = new Table(parent, SWT.VIRTUAL | SWT.FULL_SELECTION);
-		}
+
+        // Create the inner composite with FormLayout => so we can place the inline-search-Box somewhere (and do NOT rely on the parent's layout-algo!)
+        container = new Composite(parent, SWT.NONE);
+        FormLayout formLayout = new FormLayout();
+        container.setLayout(formLayout);
+
+        // Create the Table within the container
+        if (showBorder) {
+            table = new Table(container, SWT.VIRTUAL | SWT.FULL_SELECTION | SWT.BORDER);
+        } else {
+            table = new Table(container, SWT.VIRTUAL | SWT.FULL_SELECTION);
+        }
+
+        // Set layout data for the Table to fill the container
+        FormData tableFormData = new FormData();
+        tableFormData.left = new FormAttachment(0, 0);
+        tableFormData.right = new FormAttachment(100, 0);
+        tableFormData.top = new FormAttachment(0, 0);
+        tableFormData.bottom = new FormAttachment(100, 0);
+        table.setLayoutData(tableFormData);
+
 		table.setHeaderVisible(true);
 		table.setLinesVisible(true);
-		
+
+        // Add DisposeListener to clean up resources
+        table.addDisposeListener(new DisposeListener() {
+            @Override
+            public void widgetDisposed(DisposeEvent e) {
+                disposed = true;
+                if (filterHelper != null) {
+                    filterHelper.dispose();
+                }
+            }
+        });
+
 		// data-get event verlinken
 		table.addListener(SWT.SetData, new Listener() {		// virtual table: GIB mir Daten für Zeile x
 			public void handleEvent(Event e) {
@@ -377,40 +420,52 @@ public class GenTable2<T> implements IShutdownHook {
 			}
 		});
 	    table.addKeyListener(new KeyAdapter() {
-	    	@Override
-	    	public void keyReleased(KeyEvent e) {
-                if (keyListener!=null && curSelectedRow!=null) {
-                    boolean ctrl  = (e.stateMask & SWT.CTRL) > 0;
-                    boolean shift = (e.stateMask & SWT.SHIFT) > 0;
-                    keyListener.onKey(curSelectedRow.data, e.character, shift, ctrl, e.keyCode);
-                } else {
-                    handleJumpToKey(e.character);
-                }
-	    	}
 
             @Override
             public void keyPressed(KeyEvent e) {
-                if (keyListener!=null) {
-                    T data = curSelectedRow!=null ? curSelectedRow.data : null;
+                if (keyListener != null) {
+                    T data = curSelectedRow != null ? curSelectedRow.data : null;
                     boolean processed = keyListener.onKeyDown(data, e.character, e.keyCode);
-                    if (processed) e.doit = false;
+                    if (processed) {
+                        e.doit = false;
+                        return;
+                    }
                 }
+
+                if (filterHelper != null) {
+                    filterHelper.handleKeyEvent(e);
+                    return;
+                }
+
+                // If not filtering, handle jump to key
+                handleJumpToKey(e.character);
             }
         });
-
-	    // ich kann von aussen abfragen ob die Tabelle überhaupt noch gültig ist
-	    table.addDisposeListener(new DisposeListener() {
-			@Override
-			public void widgetDisposed(DisposeEvent e) {
-				disposed = true;
-			}
-		});
 	}
 
-	/**
+    /**
+     * add filter: add a paint-listener
+     */
+    public void setInlineFilter(IInlineFilter<T> filter) {
+        if (filter != null) {
+            if (filterHelper == null) { // Initialize only once
+                filterHelper = new InlineFilterHelper(filter);
+            } else {
+                filterHelper.inlineFilter = filter; // Update the filter if already initialized
+                filterHelper.filterString = "";
+                filterHelper.clearFilterData();
+            }
+        } else {
+            if (filterHelper != null) {
+                filterHelper.dispose();
+                filterHelper = null;
+            }
+        }
+    }
+
+    /**
 	 * kann nach dem Constructor kommen:
 	 * - zeige die ROWS so hoch an
-	 * @param height
 	 */
 	public void setRowHeight(int height) {
 		if (measureHandler==null) {				// erzeuge den Listener nur EINMAL
@@ -494,39 +549,37 @@ public class GenTable2<T> implements IShutdownHook {
 	 */
 	public void addColumns(final ColBuilder newCols) {
 		
-		Runnable r = new Runnable() {
-			public void run() {
-				ColumnHandler[] list = newCols.ch.toArray(new ColumnHandler[newCols.ch.size()]);
-				
-				// Achtung: wenn's noch gar keine cols gibt:
-				if (colList==null) {
-					configColumns(list);
-					return;
-				}
-				
-				// die neuen Spalte/n müssen auch in die colList, ist ein Array => also NEU anlegen
-				int n = colList.length;
-				ColumnHandler[] newList = new ColumnHandler[n + list.length];		// baue NEUE Liste!
-				
-				for (int i=0; i<list.length; i++) {
-					ColumnHandler c = list[i];
-					TableColumn tc = new TableColumn(table, c.swtAlignment);  // LEFT , RIGHT, CENTER
-					tc.setWidth(c.width);
-					tc.setText(c.label);
-					tc.setData(c);			// Ref auf Meta-Info-Object herstellen
-					if (c.sortable) {
-						// Sortierung: Spalte sort-enablen und Sort-ID setzen
-						tc.addListener(SWT.Selection, sortListener);
-					}
-					newList[n+i] = c;								// füge die neuen schon mal "hinten" an
-					
-					// ACHTUNG: der col.colIdx stimmt nicht!!
-					c.columnIdx = n+i;
-				}
-				System.arraycopy(colList, 0, newList, 0, n);		// kopiere bekannten vorderen Teil
-				colList = newList;
-			}
-		};
+		Runnable r = () -> {
+            ColumnHandler[] list = newCols.ch.toArray(new ColumnHandler[newCols.ch.size()]);
+
+            // Achtung: wenn's noch gar keine cols gibt:
+            if (colList==null) {
+                configColumns(list);
+                return;
+            }
+
+            // die neuen Spalte/n müssen auch in die colList, ist ein Array => also NEU anlegen
+            int n = colList.length;
+            ColumnHandler[] newList = new ColumnHandler[n + list.length];		// baue NEUE Liste!
+
+            for (int i=0; i<list.length; i++) {
+                ColumnHandler c = list[i];
+                TableColumn tc = new TableColumn(table, c.swtAlignment);  // LEFT , RIGHT, CENTER
+                tc.setWidth(c.width);
+                tc.setText(c.label);
+                tc.setData(c);			// Ref auf Meta-Info-Object herstellen
+                if (c.sortable) {
+                    // Sortierung: Spalte sort-enablen und Sort-ID setzen
+                    tc.addListener(SWT.Selection, sortListener);
+                }
+                newList[n+i] = c;								// füge die neuen schon mal "hinten" an
+
+                // ACHTUNG: der col.colIdx stimmt nicht!!
+                c.columnIdx = n+i;
+            }
+            System.arraycopy(colList, 0, newList, 0, n);		// kopiere bekannten vorderen Teil
+            colList = newList;
+        };
 		
 		if (core.isSwtThread()) {
 			r.run();
@@ -893,24 +946,44 @@ public class GenTable2<T> implements IShutdownHook {
 	/**
 	 * call von der Tabelle: - ich brauche den Inhalt dieser Zeile
 	 */
-	protected void onDisplayTableItem(TableItem item) {
-		int index = getRowIndex(item);
-		// check
-		if (index >= rows.size()) {
-			return; // habe noch keine Daten
-		}
-		Row row = rows.get(index);
-		row.item = item;		// back-ref
-		row.setDataIntoItem();
-		
-		if (row.selectionFlag) {
-			row.selectionFlag = false;
-			toBeSelected = null;
-			table.setSelection(index);
-		}
-	}
+    protected void onDisplayTableItem(TableItem item) {
+        int index = getRowIndex(item);
+        Row row;
 
-	
+        synchronized (rows) {
+            List<Row> sourceRows = (filterHelper != null) ? filterHelper.getCurrentRows() : rows;
+            if (index >= sourceRows.size()) {
+                return;
+            }
+            row = sourceRows.get(index);
+        }
+
+        row.item = item;
+        row.setDataIntoItem();
+
+        if (row.selectionFlag) {
+            row.selectionFlag = false;
+            toBeSelected = null;
+            table.setSelection(index);
+        }
+    }
+
+    /**
+     * Low-Level-Zugriff:
+     * - jemand will alle Rows haben
+     * - das erzeugt eine KOPIE der internen Liste
+     */
+    public List<T> getAllRows() {
+        synchronized (rows) {
+            List<T> result = new ArrayList<>();
+            List<Row> sourceRows = (filterHelper != null) ? filterHelper.getCurrentRows() : rows;
+            for (Row r : sourceRows) {
+                result.add(r.data);
+            }
+            return result;
+        }
+    }
+
 	// Sortierung: call kommt im SWT
 	private final Listener sortListener = new Listener() {
 		public void handleEvent(Event e) {
@@ -1003,7 +1076,7 @@ public class GenTable2<T> implements IShutdownHook {
 		/**
 		 * Workaround: Bsp:
 		 * - es kommt eine neue Zeile hinzu (User legt ein neues Setup an)
-		 * - der User-Code will diese Zeile auch gleich selektieren {@link GenTable2#setSelectecdRow(Object)}
+		 * - der User-Code will diese Zeile auch gleich selektieren {@link GenTable3#setSelectecdRow(Object)}
 		 * - ABER: die Tabelle liegt hinter einem Fenster oder ist weg-gescollt -> die neue Zeile wurde 
 		 *   NOCH NIE gezeichnet!
 		 * - da die Tabelle VIRUELL ist: onDisplayTableItem() wurde noch gar nicht GERUFEN! 
@@ -1155,7 +1228,7 @@ public class GenTable2<T> implements IShutdownHook {
 			this.style = style;
 			this.color = color;
 			startedAt = System.currentTimeMillis();
-			if (style==HighlightSTYLE.ACTIVITY_METER) {
+			if (style== HighlightSTYLE.ACTIVITY_METER) {
 				activityHigh = 15;
 			}
 		}
@@ -1165,13 +1238,13 @@ public class GenTable2<T> implements IShutdownHook {
 		 */
 		public void drawCell(Event event) {
 			GC gc = event.gc;
-			if (style==HighlightSTYLE.SOLID_COLOR) {
+			if (style== HighlightSTYLE.SOLID_COLOR) {
 				Color oldBackground = gc.getBackground(); 
 				gc.setBackground(color);
 				gc.fillRectangle(event.x, event.y, event.width, event.height);
 				gc.setBackground(oldBackground);		// restore 
 			}
-			if (style==HighlightSTYLE.ACTIVITY_METER) {
+			if (style== HighlightSTYLE.ACTIVITY_METER) {
 				Color oldBackground = gc.getBackground(); 
 				gc.setBackground(color);
 				int y0 = event.y + event.height - activityHigh - 1;
@@ -1185,7 +1258,7 @@ public class GenTable2<T> implements IShutdownHook {
 		 * - ich checke: bin ich noch aktiv ?
 		 */
 		public boolean age(long now) {
-			if (style==HighlightSTYLE.ACTIVITY_METER) {
+			if (style== HighlightSTYLE.ACTIVITY_METER) {
 				activityHigh -= 2;
 				if (activityHigh<0) {
 					alive = false;
@@ -1492,7 +1565,7 @@ public class GenTable2<T> implements IShutdownHook {
 	}
 
 	/**
-	 * Arbeits-Callback für {@link GenTable2#findRow(RowFinder)}
+	 * Arbeits-Callback für {@link GenTable3#findRow(RowFinder)}
 	 */
 	public interface RowFinder<T> {
 		/**
@@ -1523,23 +1596,7 @@ public class GenTable2<T> implements IShutdownHook {
 		}
 		return result;
 	}
-	
-	
-	/**
-	 * Low-Level-Zugriff: 
-	 * - jemand will alle Rows haben
-	 * - das erzeugt eine KOPIE der internen Liste
-	 */
-	public List<T> getAllRows() {
-		synchronized (rows) {
-			List<T> result = new ArrayList<T>(rows.size());
-			for (Row r : rows) {
-				result.add(r.data);
-			}
-			return result;
-		}
-	}
-	
+
 	/**
 	 * wen's interessiert... 
 	 * 
@@ -1772,7 +1829,7 @@ public class GenTable2<T> implements IShutdownHook {
 				String label = def.labels.get(i);
 				Object code  = def.vals.get(i);
 				// check auf Seperator
-				if (label==MenuDefinition.SEP) {		// hier bewusst obj-ref!
+				if (label== MenuDefinition.SEP) {		// hier bewusst obj-ref!
 					new MenuItem(menu, SWT.SEPARATOR);
 					continue;
 				}
@@ -1951,6 +2008,169 @@ public class GenTable2<T> implements IShutdownHook {
 		TableColumn col = table.getColumn(colIdx);
 		col.setWidth(width);
 	}
+
+
+    private class InlineFilterHelper {
+
+        private IInlineFilter<T> inlineFilter;
+        private Text filterTextControl;
+        private List<Row> filteredRows;
+        private String filterString = "";
+
+        private Timer debounceTimer = new Timer();
+        private final int DEBOUNCE_DELAY_MS = 150; // Adjust as needed
+
+        /** Ctor ----------------------------------------------- */
+        public InlineFilterHelper(IInlineFilter<T> inlineFilter) {
+            this.inlineFilter = inlineFilter;
+            createFilterTextControl();
+        }
+
+        private void createFilterTextControl() {
+            // Create the Text control as a child of the container
+            filterTextControl = new Text(container, SWT.SINGLE | SWT.BORDER);
+            filterTextControl.setMessage("Type to filter...");
+
+            // Position the Text control at the top-left corner with FormData
+            FormData textFormData = new FormData();
+            textFormData.left = new FormAttachment(0, 5);   // 5 pixels from the left
+            textFormData.top = new FormAttachment(0, 5);    // 5 pixels from the top
+            textFormData.width = 200;                       // Set desired width
+            filterTextControl.setLayoutData(textFormData);
+
+            // Add ModifyListener to handle text changes
+            filterTextControl.addModifyListener(new ModifyListener() {
+                @Override
+                public void modifyText(ModifyEvent e) {
+                    filterString = filterTextControl.getText();
+                    applyFilter();
+                }
+            });
+
+            // Add KeyListener to handle ESC key
+            filterTextControl.addKeyListener(new KeyAdapter() {
+                @Override
+                public void keyPressed(KeyEvent e) {
+                    if (e.keyCode == SWT.ESC) {
+                        clearFilter();
+                        e.doit = false;
+                    }
+                }
+            });
+
+            // Ensure the Text control stays positioned correctly when the container is resized
+            container.addControlListener(new ControlAdapter() {
+                @Override
+                public void controlResized(ControlEvent e) {
+                    // Optionally adjust the position or size of the Text control
+                    // Currently handled by FormLayout
+                }
+            });
+
+            // Optionally, set focus to the Text control
+            filterTextControl.setFocus();
+        }
+
+        public void handleKeyEvent(KeyEvent e) {
+            if (e.keyCode == SWT.ESC) {
+                clearFilter();
+                e.doit = false;
+                return;
+            }
+
+            if (isValidFilterKey(e)) {
+                if (filterTextControl == null || filterTextControl.isDisposed()) {
+                    createFilterTextControl();
+                }
+                filterTextControl.setFocus();
+                e.doit = false;
+            }
+        }
+
+        private boolean isValidFilterKey(KeyEvent e) {
+            // Include letters, digits, and common punctuation
+            return Character.isLetterOrDigit(e.character) || Character.isWhitespace(e.character) ||
+                    "!@#$%^&*()-_=+[]{}|;:'\",.<>/?`~".indexOf(e.character) >= 0 ||
+                    e.keyCode == SWT.BS || e.keyCode == SWT.DEL;
+        }
+
+        private void applyFilter() {
+            debounceTimer.cancel(); // Cancel any existing timer
+            debounceTimer = new Timer();
+            debounceTimer.schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    core.asyncExec(() -> {
+                        // Existing filter logic
+                        // Ensure thread safety if needed
+                        if (filterString == null || filterString.trim().isEmpty()) {
+                            clearFilterData();
+                            return;
+                        }
+
+                        List<T> allData;
+                        synchronized (rows) {
+                            allData = new ArrayList<>(rows.size());
+                            for (Row row : rows) {
+                                allData.add(row.data);
+                            }
+                        }
+
+                        List<T> filteredData = inlineFilter.onFilter(allData, filterString);
+
+                        synchronized (rows) {
+                            filteredRows = new ArrayList<>();
+                            dataLookup.clear();
+                            for (T data : filteredData) {
+                                Row row = new Row(data);
+                                filteredRows.add(row);
+                                dataLookup.put(data, row);
+                            }
+                        }
+
+                        table.setItemCount(filteredRows.size());
+                        table.clearAll();
+
+                        if (!filteredRows.isEmpty()) {
+                            table.setTopIndex(0);
+                        }
+                    });
+                }
+            }, DEBOUNCE_DELAY_MS);
+        }
+
+        private void clearFilter() {
+            filterString = "";
+            if (filterTextControl != null && !filterTextControl.isDisposed()) {
+                filterTextControl.dispose();
+                filterTextControl = null;
+            }
+            clearFilterData();
+        }
+
+        private void clearFilterData() {
+            filteredRows = null;
+            synchronized (rows) {
+                dataLookup.clear();
+                for (Row row : rows) {
+                    dataLookup.put(row.data, row);
+                }
+            }
+            table.setItemCount(rows.size());
+            table.clearAll();
+        }
+
+        public List<Row> getCurrentRows() {
+            return (filteredRows != null) ? filteredRows : rows;
+        }
+
+        public void dispose() {
+            if (filterTextControl != null && !filterTextControl.isDisposed()) {
+                filterTextControl.dispose();
+            }
+        }
+    }   // InlineFilterHelper
+
 
 }
 
